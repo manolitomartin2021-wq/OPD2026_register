@@ -1,0 +1,6 @@
+{
+  "name": "JPL REGISTRATION SYSTEM – Hospital Dalat",
+  "description": "Sistem Pendaftaran Pesakit Jabatan Pesakit Luar (JPL) Hospital Dalat, Sarawak. Aplikasi web PWA luar talian dengan Master Patient Database, pendaftaran 4 kategori, reten bulanan, backup bersulit dan pembersihan terkawal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

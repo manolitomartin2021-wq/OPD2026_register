@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@layer base {
+  html[data-text-size="biasa"] {
+    font-size: 18px;
+  }
+  html[data-text-size="besar"] {
+    font-size: 20px;
+  }
+  html[data-text-size="sangat_besar"] {
+    font-size: 24px;
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printable-slip, #printable-slip * {
+    visibility: visible;
+  }
+  #printable-slip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 10px !important;
+  }
+  .print\\:hidden {
+    display: none !important;
+  }
+}

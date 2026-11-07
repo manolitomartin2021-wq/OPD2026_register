@@ -1,0 +1,826 @@
+# MASTER PROMPT GOOGLE AI STUDIO V4.1-WEB
+# JPL REGISTRATION SYSTEM – HOSPITAL DALAT, SARAWAK
+## Sistem Pendaftaran Pesakit Jabatan Pesakit Luar (JPL)
+### Aplikasi web PWA luar talian (offline-first) untuk satu PC kaunter · Data dalam pelayar (IndexedDB) · Master Patient Database kekal · Backup bersulit · Reten bulanan · Arkib · Pembersihan terkawal selepas genap 4 bulan
+
+Versi: 4.1-WEB (versi Google AI Studio bagi REGISTER_V_4.1). Semua peraturan perniagaan kekal sama. Hanya lapisan teknikal disesuaikan kerana Google AI Studio menghasilkan aplikasi web, bukan aplikasi desktop.
+
+Perbezaan teknikal berbanding versi desktop:
+1. Platform: aplikasi web React + TypeScript (PWA luar talian), bukan Electron.
+2. Storan: IndexedDB dalam pelayar, bukan SQLite.
+3. Kriptografi: WebCrypto (PBKDF2, AES-GCM, SHA-256, HMAC).
+4. Backup dan arkib disimpan sebagai fail melalui File System Access API (Chrome/Edge) atau muat turun.
+5. Cetakan melalui pelayar (A4 dan thermal 80mm).
+6. Had keselamatan pelayar dinyatakan secara jujur dalam Bahagian 4.8.
+
+Peraturan perniagaan yang tidak berubah: empat kategori pendaftaran, RN baharu reset setiap tahun, nombor HDalat reset setiap bulan, status TIDAK AKTIF selepas 6 bulan tiada kehadiran, kewarganegaraan wajib (bukan warganegara wajib pasport dan tarikh lahir), penutupan bulan berasingan daripada pembersihan, pembersihan hanya selepas genap 4 bulan, UI mesra staf veteran, peringatan salin data setiap Jumaat 4.00 petang.
+
+---
+
+# 0. CARA PROMPT INI DIGUNAKAN (BACA DAHULU)
+
+1. Anda ialah Senior Full-Stack Engineer, System Architect, Database Engineer dan UI/UX Designer sistem maklumat hospital. Anda membina aplikasi web dalam Google AI Studio (Build).
+2. Hasilkan aplikasi LENGKAP dan berfungsi: semua fail dengan kod penuh. DILARANG menggunakan "TODO", placeholder, "..." atau "kod selebihnya seperti sebelum ini".
+3. Aplikasi mesti berfungsi sepenuhnya TANPA internet. DILARANG: API Gemini atau sebarang AI, panggilan rangkaian, analytics, CDN atau font luar semasa runtime, pangkalan data awan. Semua pustaka dibundel melalui npm.
+4. DILARANG menggunakan data olok-olok sebagai data sebenar. Semua data pesakit, kehadiran, pengguna dan backup berada dalam IndexedDB. localStorage hanya untuk tetapan UI yang tidak sensitif.
+5. Jika had output hampir dicapai: siapkan semua [WAJIB] mengikut urutan Bahagian 28 dahulu. Di akhir jawapan, tulis seksyen "BELUM SIAP" yang menyenaraikan dengan jujur modul yang belum lengkap. Pengguna akan menaip "TERUSKAN: <nama modul>". DILARANG mendakwa siap jika sebahagian belum dibina. DILARANG mengurangkan peraturan perniagaan secara senyap.
+6. Pada akhir hasil, sediakan: (a) senarai fail, (b) arahan `npm install` dan `npm run build`, serta cara menghidang (rujuk DEPLOYMENT_GUIDE.md), (c) senarai semak ujian (Bahagian 26). DILARANG menyatakan "lulus" atau "berfungsi" bagi ujian yang tidak dijalankan; gunakan label DISEMAK atau BELUM DIUJI.
+7. Jika maklumat tiada, gunakan nilai lalai Bahagian 29 dan catat dalam ASSUMPTIONS.md. Jangan mereka formula reten rasmi KKM.
+8. Keutamaan: integriti data > keselamatan > kebolehgunaan kaunter > kelajuan pembangunan.
+9. Tanda ciri: [WAJIB] mesti ada; [PATUT] patut ada jika masa/output mengizinkan; [BOLEH] pilihan. Tanpa tanda = [WAJIB].
+10. Kod modular (fail kecil), TypeScript ketat, komen ringkas, supaya mudah dibaiki secara berperingkat.
+
+---
+
+# 1. PERANAN DAN MATLAMAT
+
+Bangunkan JPL REGISTRATION SYSTEM untuk Kaunter Pendaftaran Jabatan Pesakit Luar (JPL), Hospital Dalat, Bahagian Mukah, Sarawak (Kementerian Kesihatan Malaysia).
+
+Skop terhad kepada pendaftaran kehadiran pesakit JPL, pangkalan data induk pesakit, reten kehadiran bulanan, backup, arkib dan pembersihan terkawal. Tiada modul lain.
+
+Pengguna: PENYELIA dan STAFF KAUNTER sahaja.
+
+---
+
+# 2. PERATURAN MUTLAK (SENARAI TUNGGAL – TIDAK BOLEH DILANGGAR)
+
+A. Seni bina
+1. Satu PC kaunter. Bukan multi-station, bukan cloud. Tiada internet diperlukan untuk operasi harian.
+2. Semua data dalam IndexedDB. Komponen UI TIDAK mengakses IndexedDB secara terus; semua operasi melalui lapisan servis data tunggal yang menyemak role dan sesi pada setiap fungsi (Bahagian 4.8).
+3. Penulisan merentas beberapa store dibuat dalam SATU transaksi IndexedDB (atomik).
+
+B. Data pesakit
+4. Master Patient Database kekal. Tiada reset, pembersihan atau pemadaman oleh sebarang proses automatik.
+5. No. RN pesakit sedia ada tidak pernah dijana semula, diubah atau diformat semula (simpan sebagai TEKS tepat seperti asal).
+6. Staff tidak boleh memadam pesakit atau menukar No. RN. Tiada hard delete transaksi oleh Staff.
+
+C. Penomboran
+7. Nombor HDalat yang telah dikeluarkan tidak boleh digunakan semula, walaupun pendaftaran dibatalkan atau data dipulihkan.
+8. Nombor dijana dalam satu transaksi readwrite IndexedDB bersama penyimpanan kehadiran, dengan indeks unik.
+
+D. Backup, arkib dan pembersihan
+9. Eksport fail BUKAN backup yang disahkan. Backup sah hanya selepas VERIFY berjaya.
+10. Pembersihan transaksi hanya selepas semua prasyarat Bahagian 20 disemak oleh SISTEM (bukan sekadar diisytiharkan Penyelia), dan hanya dengan kelulusan Penyelia.
+11. Dilarang menyediakan fungsi "padam semua data", `indexedDB.deleteDatabase` atau reset penuh dalam profil sebenar. Hanya profil ujian dibenarkan "Kosongkan Data Ujian".
+12. Arkib tidak ditindih. Aplikasi tidak pernah menulis ganti fail arkib sedia ada.
+13. Audit log tidak boleh diubah atau dipadam melalui aplikasi.
+
+E. Kejujuran sistem
+14. Jangan paparkan BERJAYA sebelum transaksi IndexedDB selesai (complete).
+15. Kegagalan cetakan tidak boleh menyebabkan transaksi hilang. Simpan dahulu, cetak kemudian.
+16. Data ujian tidak boleh bercampur dengan data sebenar (Bahagian 4.5).
+
+---
+
+# 3. IDENTITI DAN KONTEKS
+
+- Nama aplikasi: JPL REGISTRATION SYSTEM
+- Organisasi: Hospital Dalat, Bahagian Mukah, Sarawak, KKM
+- Zon masa: Asia/Kuching (UTC+8). Tarikh DD/MM/YYYY. Masa 24 jam.
+- Bahasa antaramuka dan mesej ralat: Bahasa Melayu yang mudah. Jangan paparkan mesej teknikal kepada petugas kaunter. Simpan butiran teknikal dalam log.
+- Medan nama pesakit: UPPERCASE automatik. Simpan juga `nama_normalized` (huruf besar, ruang tunggal, tanpa aksara khas) untuk carian. Terima aksara A/L, A/P, @, apostrof dan sengkang tanpa merosakkan nama.
+- Pengguna termasuk staf veteran yang kurang mahir IT. Ikut Bahagian 24 (tulisan besar dan tebal, warna lembut, butang besar, klik minimum, menu ringkas).
+
+---
+
+# 4. SENI BINA (APLIKASI WEB PWA, LUAR TALIAN)
+
+## 4.1 Teknologi
+- Google AI Studio (Build): React + TypeScript + Vite + Tailwind CSS (dibundel melalui npm, BUKAN CDN) + lucide-react.
+- Storan: IndexedDB (gunakan Dexie jika tersedia; jika tidak, tulis wrapper IndexedDB sendiri). Setiap jadual dalam Bahagian 5 ialah object store dengan indeks yang dinyatakan.
+- PWA: manifest dan service worker yang pra-cache seluruh aplikasi supaya berfungsi tanpa internet dan boleh dipasang ("Install app") dalam Chrome/Edge sebagai tetingkap tersendiri.
+- Kriptografi: WebCrypto sahaja. PBKDF2-SHA256 sekurang-kurangnya 310,000 lelaran dengan salt unik (kata laluan dan kunci backup), AES-256-GCM, SHA-256, HMAC-SHA256.
+- Excel/CSV: pustaka xlsx (SheetJS) dan/atau papaparse (dibundel). Pemampatan: `CompressionStream('gzip')`.
+- Fail backup/arkib: File System Access API (`showDirectoryPicker`, `showSaveFilePicker`, `showOpenFilePicker`) pada Chrome/Edge. Jika tidak tersedia atau ditolak, gunakan muat turun/muat naik fail biasa.
+- Pelayar sasaran: Google Chrome atau Microsoft Edge terkini pada Windows.
+- Pengesahan input: skema validasi (cth zod). Fon: fon sistem sahaja.
+- Content-Security-Policy dalam index.html: `default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'`.
+
+## 4.2 Storan dan ketahanan data
+1. Panggil `navigator.storage.persist()` semasa persediaan. Paparkan status (DIKEKALKAN / TIDAK DIKEKALKAN) dan anggaran kuota (`navigator.storage.estimate()`) pada Dashboard Penyelia. Amaran jika tidak dikekalkan atau kuota melebihi 80%.
+2. Data pelayar BOLEH HILANG jika pengguna mengosongkan data pelayar ("Clear browsing data"), memadam profil pelayar atau memasang semula PC. Paparkan amaran jelas dalam wizard dan Dashboard. Backup ialah pelindung utama.
+3. Satu tab sahaja: guna Web Locks API (kunci eksklusif). Jika aplikasi sudah dibuka di tab atau tetingkap lain, paparkan "Aplikasi sudah dibuka di tetingkap lain" dan jangan teruskan.
+4. Semua penulisan berbilang store (cth kehadiran + sequence + audit) dalam satu transaksi. BERJAYA hanya dipaparkan selepas transaksi complete.
+
+## 4.3 Alamat (origin) tetap
+Data terikat kepada alamat aplikasi dan profil pelayar. Jika alamat berubah, data TIDAK kelihatan. Wizard persediaan memaparkan alamat semasa dengan amaran besar "CATAT ALAMAT INI. JANGAN TUKAR." dan alamat dipaparkan pada pengaki halaman. Sediakan DEPLOYMENT_GUIDE.md (Bahagian 27).
+
+## 4.4 Dua mod
+- MOD KAUNTER: pendaftaran dan semua fungsi operasi (PC kaunter).
+- MOD PENYELIA-ARKIB: tiada pendaftaran. Hanya pengesahan backup, pembinaan arkib, Archive Viewer, resit arkib, laporan terkumpul dan alat restore (PC Penyelia).
+Mod dipilih semasa persediaan pertama dan hanya boleh ditukar oleh Penyelia dengan kata laluan. Aplikasi menolak backup/arkib berskema lebih baharu daripada dirinya.
+
+## 4.5 Profil ujian
+Database IndexedDB berasingan bernama `JPL_UJIAN` (dipilih semasa persediaan atau melalui `?profil=ujian`), sepanduk merah tetap "MOD UJIAN – BUKAN DATA SEBENAR", penjana data ujian (sehingga 50,000 pesakit) dan butang "Kosongkan Data Ujian" hanya dalam profil ini. Import backup antara profil ditolak. Profil sebenar bermula bersih.
+
+## 4.6 Migrasi skema
+Versi IndexedDB (`onupgradeneeded`) dan jadual schema_version. Sebelum naik taraf skema, minta Penyelia membuat backup. Setiap backup dan manifest mencatat app_version dan schema_version.
+
+## 4.7 Pengguna tidak perlu faham teknikal
+Semua istilah dalam UI ialah Bahasa Melayu mudah. Persediaan pertama dibimbing langkah demi langkah dengan butang besar.
+
+## 4.8 Had keselamatan pelayar (nyata dan mesti dinyatakan dalam dokumentasi)
+- Aplikasi web tanpa pelayan tidak boleh menghalang pengguna teknikal yang membuka DevTools daripada membaca atau mengubah IndexedDB. Kawalan role dilaksanakan dalam lapisan servis data tunggal (semua fungsi menyemak sesi dan role; UI tidak mengakses data terus) dan menghalang penggunaan biasa dan kesilapan.
+- Mitigasi: audit log berantai hash (mengesan pengubahan), backup bersulit, akaun Windows terhad pada PC kaunter, profil pelayar khusus aplikasi, tetapan dasar pelayar untuk melumpuhkan DevTools jika boleh (dokumentasi), BitLocker, dan kelulusan ICT hospital.
+- Nyatakan had ini dalam ADMIN_GUIDE.md.
+
+---
+
+# 5. STRUKTUR DATA (INDEXEDDB)
+
+## 5.1 patients (MASTER PATIENT DATABASE – KEKAL)
+- patient_id (UUID, PK)
+- no_rn (TEXT, UNIQUE, NOT NULL; disimpan tepat seperti asal)
+- jenis_dokumen (rujuk ref_jenis_dokumen)
+- no_dokumen; no_dokumen_normalized (huruf besar, tanpa sengkang/ruang; boleh NULL jika jenis "TIADA DOKUMEN")
+- nama_pesakit; nama_normalized
+- jantina; tarikh_lahir
+- etnik (rujuk ref_etnik, boleh dikonfigurasi Penyelia)
+- kewarganegaraan (WARGANEGARA / BUKAN WARGANEGARA; WAJIB)
+- no_pasport; no_pasport_normalized (WAJIB jika BUKAN WARGANEGARA; boleh NULL bagi warganegara)
+- alamat; nombor_telefon; nama_waris; telefon_waris
+- status_pesakit: AKTIF | TIDAK AKTIF | MENINGGAL | DIGABUNG
+- tarikh_kehadiran_terakhir (DATE, boleh NULL)
+- first_visit_date (DATE, boleh NULL)
+- dicipta_melalui: IMPORT | SISTEM
+- merged_into_patient_id (FK ke patients, NULL jika tidak digabung)
+- tarikh_dicipta; tarikh_dikemaskini; created_by; updated_by
+
+Umur TIDAK disimpan. Kira ketika paparan daripada tarikh_lahir (tahun; bagi bayi di bawah 2 tahun paparkan bulan). Setiap kehadiran menyimpan `umur_tahun` pada tarikh pendaftaran untuk reten dan slip.
+
+Kekangan dan indeks (IndexedDB tidak mempunyai indeks separa; kekangan dikuatkuasakan dalam transaksi servis data dengan semakan melalui indeks sebelum simpan, dan abort jika melanggar):
+- Indeks unik: no_rn.
+- Kekunci unik (disemak dalam transaksi): (jenis_dokumen, no_dokumen_normalized) apabila no_dokumen_normalized tidak kosong dan status bukan DIGABUNG; no_pasport_normalized apabila tidak kosong dan status bukan DIGABUNG.
+- Indeks: no_rn, nama_normalized (carian awalan melalui IDBKeyRange), nama_tokens (indeks multiEntry bagi setiap perkataan nama untuk carian separa), no_dokumen_normalized, no_pasport_normalized, tarikh_lahir, kewarganegaraan, status_pesakit, tarikh_kehadiran_terakhir.
+- Sasaran prestasi: carian kurang 1 saat pada 50,000 pesakit.
+
+## 5.2 Jadual rujukan (boleh diurus Penyelia)
+- ref_jenis_dokumen: MYKAD, MYKID, PASPORT, MYPR, POLIS/TENTERA, TIADA DOKUMEN.
+- ref_etnik: senarai boleh dikonfigurasi (termasuk etnik tempatan Sarawak). Jangan keraskan dalam kod.
+- ref_kategori (tetap, tidak boleh ditambah): FUP_RUTIN, WALK_IN, MEDICAL_CHECKUP, PROCEDURE_ROOM.
+
+## 5.3 patient_status_history
+id, patient_id, status_lama, status_baharu, sebab (AUTO_6BULAN | HADIR_SEMULA | MANUAL | GABUNG), tarikh, user_id (NULL jika automatik).
+
+## 5.4 attendances (DATA TRANSAKSI)
+- attendance_id (UUID, PK; juga kunci transaksi unik untuk arkib)
+- patient_id (FK, ON DELETE RESTRICT)
+- tahun_bulan (TEXT 'YYYY-MM'); nombor (INTEGER); no_daftar (TEXT, cth 'HDalat/0001')
+- kategori (FUP_RUTIN | WALK_IN | MEDICAL_CHECKUP | PROCEDURE_ROOM)
+- tarikh; masa
+- status: SAH | BATAL
+- pesakit_baharu (BOOLEAN, ditetapkan ketika pendaftaran, tidak berubah)
+- umur_tahun (INTEGER pada tarikh pendaftaran); kewarganegaraan (disalin daripada profil ketika pendaftaran)
+- prev_last_visit_date; prev_first_visit_date (untuk pemulihan jika dibatalkan)
+- kemasukan_lewat (BOOLEAN); no_rujukan_manual (TEXT; nombor borang manual semasa PC rosak)
+- catatan
+- pengecualian_oleh; sebab_pengecualian (jika pendaftaran kedua kategori sama pada hari sama)
+- registered_by; created_at; updated_at; cancelled_by; cancelled_at; cancellation_reason
+- arkib_status: BELUM | DIARKIB
+- Indeks unik majmuk [tahun_bulan + nombor].
+- Indeks: (tarikh), (patient_id, tarikh), (tahun_bulan, kategori), no_daftar.
+
+## 5.5 Jadual kawalan penomboran dan bulan
+- monthly_sequences: tahun_bulan (PK), last_number, updated_at.
+- rn_sequences: tahun (PK), last_number, updated_at.
+- month_status: tahun_bulan (PK), status (TERBUKA | DITUTUP | DIARKIB | DIBERSIHKAN), tarikh_tutup, ditutup_oleh, tarikh_layak_bersih, hardcopy_disahkan_oleh, hardcopy_disahkan_tarikh.
+- monthly_summaries: id, tahun_bulan, versi, status (DRAF | RASMI), data_json (semua nilai indikator), definisi_versi, dikira_pada, dikira_oleh. Baris TIDAK DIUBAH. Pindaan menghasilkan versi baharu.
+- reten_definitions: kod_indikator, nama, definisi, aktif, disahkan_oleh, tarikh_pengesahan.
+
+## 5.6 Jadual pengurusan
+- backup_history: backup_id, tarikh, masa, nama_fail, jenis (HARIAN | MINGGUAN | PRA_RESET | PRA_RESTORE | PRA_MIGRASI), tempoh_mula, tempoh_tamat, jumlah_pesakit, jumlah_kehadiran, jumlah_pembatalan, saiz_fail, checksum_sha256, destinasi, status_pengesahan (BELUM DISAHKAN | DISAHKAN DI KAUNTER | DISAHKAN DI PC PENYELIA | GAGAL), performed_by, app_version, schema_version.
+- archive_history: archive_id, tahun_bulan, jumlah_rekod, jumlah_pesakit, nama_fail, checksum, tarikh_arkib, salinan_1_lokasi, salinan_2_lokasi, salinan_2_disahkan, status_arkib, disahkan_oleh, versi_arkib.
+- archive_receipts: receipt_id, archive_id, tahun_bulan, jumlah_rekod, checksum, hmac_sah, diimport_pada, diimport_oleh.
+- purge_batches: batch_id, bulan_dibersihkan (senarai), jumlah_rekod_dipadam, backup_pra_reset_id, diluluskan_oleh, tarikh, hasil (BERJAYA | DIBATALKAN | GAGAL), laporan.
+- users: user_id, username (UNIQUE), nama_penuh, role (PENYELIA | STAFF), password_hash, salt, aktif, gagal_login, dikunci_hingga, wajib_tukar_password, last_login, created_at.
+- audit_logs: lihat Bahagian 22.
+- system_settings (key/value): hospital_name, application_name, timezone, mod_pemasangan, profil, last_known_timestamp, tempoh_auto_lock, printer_settings, laluan_salinan_kedua, polisi_backup.
+- schema_version.
+
+Rujukan antara store dijaga oleh kod servis data (tiada rekod yatim, tiada pemadaman pesakit). Tiada operasi yang memadam rekod induk secara berantai.
+
+---
+
+# 6. TAKRIFAN (WAJIB DIPATUHI DALAM KOD, LAPORAN DAN UJIAN)
+
+- Kehadiran sah: baris attendances dengan status SAH. Rekod BATAL tidak dikira sebagai kehadiran.
+- Pesakit baharu: kehadiran PERTAMA yang sah bagi pesakit yang dicipta melalui "Daftar Pesakit Baharu" dalam sistem (dicipta_melalui = SISTEM dan first_visit_date masih kosong). Ditetapkan ketika pendaftaran dan disimpan dalam kehadiran. Pesakit yang diimport sentiasa "sedia ada".
+- Pesakit sedia ada: kehadiran yang bukan pesakit baharu.
+- Pesakit unik (bagi tempoh): bilangan patient_id berbeza yang mempunyai sekurang-kurangnya satu kehadiran sah dalam tempoh itu.
+- Minggu: ISO 8601 (Isnin hingga Ahad), label `YYYY-Wxx`.
+- Bulan operasi: berdasarkan tarikh kehadiran (`tahun_bulan`).
+- Tutup Hari: tindakan Staff/Penyelia untuk mengesahkan senarai hari itu dicetak. Selepas itu rekod hari itu hanya boleh diedit Penyelia.
+- Penutupan Bulan: Penyelia mengunci bulan, menjana ringkasan rasmi (monthly_summaries) dan menyahkan cetakan hardcopy. BUKAN pembersihan data.
+- Layak dibersihkan: bulan yang telah DIARKIB dan tarikh hari ini melepasi (hari terakhir bulan itu + 4 bulan kalendar). Contoh: bulan November 2026 (berakhir 30/11/2026) layak selepas 30/03/2027. Jika bulan sasaran lebih pendek, guna hari terakhir bulan sasaran.
+
+Kitaran status bulan: TERBUKA → DITUTUP → DIARKIB → DIBERSIHKAN. Tiada langkah dilangkau.
+
+---
+
+# 7. STATUS PESAKIT AUTOMATIK
+
+Status dinilai melalui kehadiran:
+1. Pesakit AKTIF yang `tarikh_kehadiran_terakhir` lebih daripada 6 bulan kalendar sebelum hari ini → TIDAK AKTIF.
+2. Pesakit TIDAK AKTIF yang didaftarkan kehadiran sah → kembali AKTIF secara automatik.
+3. Pesakit TIDAK AKTIF boleh dicari dan didaftar seperti biasa. Tunjukkan label "TIDAK AKTIF – akan diaktifkan semula" pada profil. Jangan sekat pendaftaran.
+4. MENINGGAL ditetapkan manual oleh Penyelia. Pendaftaran pesakit MENINGGAL disekat dan memerlukan Penyelia menukar status dengan sebab.
+5. DIGABUNG ditetapkan oleh proses gabung rekod. Carian tidak memaparkan rekod DIGABUNG, tetapi membawa pengguna ke rekod induk.
+
+Pelaksanaan:
+- Penilaian dijalankan sekali sehari (semasa permulaan aplikasi dan log masuk pertama pada hari itu). Rekod satu baris ringkasan dalam audit log dan satu baris dalam patient_status_history bagi setiap pesakit yang berubah.
+- Pesakit tidak aktif tidak dipadam. Tarikh kehadiran terakhir kekal selepas kehadiran lama dibersihkan (medan ini berada pada profil pesakit, bukan pada kehadiran).
+- Pesakit diimport: tarikh asas = "tarikh kehadiran terakhir" daripada fail import jika dipetakan; jika tiada, gunakan tarikh import. Ini mengelakkan semua pesakit lama menjadi TIDAK AKTIF pada hari pertama.
+- Pembatalan: jika kehadiran terkini dibatalkan, pulihkan `tarikh_kehadiran_terakhir` dan `first_visit_date` daripada prev_last_visit_date / prev_first_visit_date, dan nilai status sebelumnya jika ia diubah oleh kehadiran itu.
+- Kehadiran BATAL tidak mengaktifkan semula pesakit.
+
+---
+
+# 8. IMPORT DATABASE PESAKIT LAMA (PENYELIA SAHAJA)
+
+Format: XLSX dan CSV.
+
+Aliran:
+1. Pilih fail → pratonton data.
+2. Kenal pasti lajur automatik; Penyelia boleh memetakan lajur secara manual. Termasuk lajur pilihan "tarikh kehadiran terakhir".
+3. Baca SEMUA lajur pengenalan (No. RN, No. Dokumen, telefon) sebagai TEKS. Jangan benarkan sifar hadapan hilang atau nombor bertukar menjadi tatatanda saintifik.
+4. Semak: No. RN kosong atau bertindih, nombor dokumen dan No. Pasport bertindih, rekod tidak lengkap, tarikh tidak sah. Petakan juga lajur kewarganegaraan dan No. Pasport jika ada. Pesakit bukan warganegara tanpa No. Pasport atau tarikh lahir diimport sebagai PROFIL TIDAK LENGKAP (Bahagian 5.1A) dan dilaporkan.
+5. Paparkan bilangan rekod sah, bermasalah dan pendua.
+6. Minta pengesahan. Import dalam SATU transaksi database. Jika sebarang ralat kritikal, batalkan keseluruhan transaksi.
+7. Jana laporan hasil import dan fail ralat (CSV) yang boleh dimuat turun.
+8. Selepas import, laraskan `rn_sequences` supaya penjanaan RN baharu tidak berlanggar dengan RN sedia ada pada tahun semasa.
+
+Larangan: jangan overwrite pesakit sedia ada tanpa pengesahan eksplisit per rekod; jangan jana RN baharu untuk pesakit lama; jangan import rekod tidak sah secara senyap; semua pesakit diimport mempunyai dicipta_melalui = IMPORT.
+
+---
+
+# 9. PENOMBORAN
+
+## 9.1 No. RN (Master Patient Number)
+- Pesakit LAMA: RN asal kekal selama-lamanya.
+- Pesakit BAHARU (didaftar dalam sistem): RN dijana automatik dalam format `HD-RN/TAHUN/NNNN`, contoh `HD-RN/2027/0001`.
+- Nombor RN BAHARU bermula semula pada 0001 setiap 1 Januari (satu baris `rn_sequences` bagi setiap tahun). RN yang telah dikeluarkan tidak berubah dan tidak dikitar semula.
+- Penjanaan dalam satu transaksi IndexedDB readwrite yang meliputi store rn_sequences dan patients. Jika RN yang dijana sudah wujud, naikkan sehingga unik.
+- Jika lebih 9999 RN dalam setahun, panjang digit bertambah secara automatik.
+- Penjanaan RN adalah automatik kepada Staff dan Penyelia. Tiada kelulusan diperlukan.
+- Tahun RN diambil daripada jam yang telah disahkan (Bahagian 9.3).
+
+## 9.2 No. Kehadiran Bulanan (HDalat)
+- Format: `HDalat/0001`, `HDalat/0002`, ...
+- Bermula semula pada 0001 setiap bulan. Setiap bulan mempunyai sequence sendiri (`monthly_sequences`).
+- Dijana dalam satu transaksi IndexedDB readwrite bersama penyimpanan kehadiran dan kemas kini monthly_sequences, dengan indeks unik [tahun_bulan + nombor].
+- Nombor yang digunakan tidak digunakan semula walaupun dibatalkan. `monthly_sequences` DILARANG dibersihkan oleh proses pembersihan.
+- Jika lebih 9999 dalam sebulan, panjang digit bertambah secara automatik.
+- Penyuntingan kategori tidak mengubah nombor.
+
+## 9.3 Perlindungan jam PC
+- Simpan `last_known_timestamp` dalam system_settings pada setiap penulisan.
+- Jika jam semasa lebih awal daripada `last_known_timestamp` (toleransi 5 minit): SEKAT pendaftaran dan paparkan "Jam PC tidak tepat. Hubungi Penyelia". Penyelia boleh meluluskan dengan sebab (direkod dalam audit).
+- Jika jam melompat ke hadapan lebih 7 hari berbanding transaksi terakhir: minta pengesahan Penyelia sebelum pendaftaran pertama.
+- Bulan baharu bermula apabila tarikh yang telah disahkan melepasi sempadan bulan, bukan sekadar menukar tarikh PC.
+
+---
+
+# 10. MODUL PENDAFTARAN PESAKIT
+
+## 10.1 Empat kategori sahaja (jangan tambah)
+1. F/UP RUTIN
+2. WALK-IN
+3. MEDICAL CHECK UP
+4. PROCEDURE ROOM
+
+Halaman utama pendaftaran: empat butang besar dengan warna dan ikon berbeza. Jangan tambah kategori, klinik atau modul lain (ETU, HDU, MCH, Pergigian, Fisioterapi dan lain-lain).
+
+## 10.2 Aliran
+1. Staff memilih kategori.
+2. Cari pesakit: No. RN, No. Kad Pengenalan, No. Pasport, atau nama. Medan carian auto-fokus. Sokong pengimbas barkod seperti input papan kekunci. [PATUT]
+3. Paparkan profil: nama, RN, umur, jantina, status, tarikh kehadiran terakhir, dan amaran jika ada.
+4. Staff mengesahkan identiti.
+5. Sistem menyemak pendaftaran pada hari sama (Bahagian 10.4).
+6. Tekan DAFTAR KEHADIRAN → sistem menjana nombor HDalat, menyimpan transaksi (commit), kemudian memaparkan slip.
+7. Pintasan papan kekunci untuk carian, kategori dan daftar [PATUT]. Sasaran: selepas pesakit dipilih, simpan dalam kurang 2 saat; pendaftaran penuh pesakit sedia ada dalam kira-kira 15 saat.
+
+## 10.3 Pesakit baharu
+- Jika carian tiada hasil, Staff membuka borang pesakit baharu.
+- Pilih kewarganegaraan dahulu (dua butang besar: WARGANEGARA / BUKAN WARGANEGARA). Borang kemudian hanya memaparkan medan yang berkaitan.
+- Medan wajib: nama, kewarganegaraan, jenis dokumen (warganegara), jantina, tarikh lahir. Jika BUKAN WARGANEGARA: No. Pasport dan tarikh lahir wajib (Bahagian 5.1A). Medan lain mengikut skema.
+- Auto-isi tarikh lahir dan jantina daripada No. MyKad sebagai cadangan yang boleh diubah (jantina: digit terakhir ganjil = lelaki, genap = perempuan). Tangani abad tarikh lahir dengan teliti. [PATUT]
+- Pengesanan pendua sebelum simpan (Bahagian 10.5).
+- Sistem menjana RN (Bahagian 9.1), menyimpan profil, kemudian meneruskan pendaftaran kehadiran. `dicipta_melalui` = SISTEM.
+- Bayi baru lahir tanpa dokumen: gunakan jenis TIADA DOKUMEN. Jangan guna No. KP ibu/bapa. Pengesanan pendua menggunakan nama, tarikh lahir dan nama waris.
+
+## 10.4 Pendaftaran berganda pada hari sama
+- Kategori SAMA, pesakit SAMA, hari SAMA → amaran: paparkan masa dan nombor HDalat sedia ada, benarkan cetak semula slip. Pendaftaran kedua hanya jika Penyelia meluluskan di kaunter (dialog login Penyelia, sebab wajib, direkod dalam pengecualian_oleh dan audit).
+- Kategori BERBEZA pada hari sama (cth F/Up dan Procedure Room) → dibenarkan. Paparkan makluman, tiada kelulusan.
+- Pesakit MENINGGAL → disekat (Bahagian 7).
+
+## 10.5 Pengesanan pendua profil pesakit
+- No. RN sama → sekat.
+- Jenis dokumen + nombor dokumen sama (kecuali TIADA DOKUMEN) → sekat dan paparkan profil sedia ada.
+- No. Pasport sama → sekat dan paparkan profil sedia ada.
+- Nama dan tarikh lahir sama atau hampir sama → amaran sahaja, bukan sekatan.
+
+## 10.6 Mod kemasukan lewat (PC rosak / kuasa terputus)
+Apabila pendaftaran dibuat secara manual semasa gangguan, Staff atau Penyelia memasukkannya kemudian dengan tanda "Kemasukan Lewat": tarikh dan masa SEBENAR, serta `no_rujukan_manual` (nombor borang manual). Sistem menjana nombor HDalat seterusnya. Direkod dalam audit.
+
+---
+
+# 11. SLIP DAN CETAKAN
+
+Selepas transaksi tersimpan, jana slip: Hospital Dalat, JPL, No. HDalat, No. RN, nama, No. KP/Pasport (bertopeng: hanya 4 digit terakhir kelihatan), umur, jantina, tarikh, masa, kategori. No. HDalat dan nama dicetak besar dan tebal.
+
+- Cetakan melalui pelayar: halaman slip dengan CSS `@media print` dan `@page`. A4 dan thermal 80mm (lebar 80mm, tinggi auto). Print Preview dalam aplikasi sebelum dialog cetak. Cetak semula.
+- Cetakan senyap (tanpa dialog) tidak boleh dilakukan oleh aplikasi web. Dokumentasikan dalam DEPLOYMENT_GUIDE cara melancarkan Chrome/Edge dengan `--kiosk-printing` dan menetapkan printer lalai.
+- Laporan juga boleh disimpan sebagai PDF melalui "Cetak ke PDF" pelayar.
+- QR Code [BOLEH]: hanya mengandungi attendance_id tanpa data peribadi (pustaka dibundel).
+- Printer offline atau cetakan gagal: transaksi kekal tersimpan; paparkan mesej jelas dan butang cetak semula.
+- Jangan mendakwa slip sebagai borang rasmi KKM tanpa pengesahan hospital.
+
+---
+
+# 12. PENGGUNA, KAWALAN AKSES (RBAC) DAN KESELAMATAN
+
+## 12.1 Akaun
+- Akaun INDIVIDU bagi setiap petugas (bukan akaun kongsi) supaya audit log bermakna.
+- Persediaan pertama: wizard mencipta akaun Penyelia pertama. Sistem mewajibkan akaun Penyelia KEDUA dan memaparkan amaran sehingga ia dicipta.
+- Kunci pemulihan (recovery key) dijana sekali semasa persediaan, dipaparkan untuk dicetak dan disimpan dalam sampul tertutup oleh Penyelia. Digunakan jika semua Penyelia terkunci.
+- Penyelia lain boleh menetapkan semula kata laluan Penyelia atau Staff (wajib tukar pada log masuk seterusnya).
+- Dasar kata laluan: minimum 8 aksara, mengandungi huruf dan nombor. Hash PBKDF2 dengan salt unik. Tiada plain text.
+- Penguncian: 5 percubaan gagal → akaun dikunci 5 minit (Penyelia boleh membuka kunci).
+- Auto-lock selepas tidak aktif (lalai 5 minit, boleh ditetapkan 2–15 minit). Buka kunci dengan kata laluan pengguna yang sama. Satu sesi aktif pada satu masa. Sesi hanya dalam memori.
+- Logout dan tukar kata laluan tersedia.
+
+## 12.2 Jadual akses
+| Fungsi | Penyelia | Staff |
+|---|---|---|
+| Dashboard operasi | Ya | Ya |
+| Cari pesakit | Ya | Ya |
+| Daftar pesakit baharu | Ya | Ya |
+| Daftar kehadiran (4 kategori) | Ya | Ya |
+| Edit/batal pendaftaran hari sama | Ya | Ya |
+| Edit/batal pendaftaran hari terdahulu atau bulan ditutup | Ya | Tidak |
+| Edit profil pesakit (telefon, alamat, waris) | Ya | Ya (medan terhad, diaudit) |
+| Edit profil pesakit (nama, dokumen, pasport, kewarganegaraan, tarikh lahir, jantina, RN, status) | Ya | Tidak (hantar Permohonan Pembetulan; boleh mengisi medan wajib yang kosong sahaja) |
+| Padam pesakit | Tidak (guna status/gabung) | Tidak |
+| Gabung rekod pendua | Ya | Tidak |
+| Import pesakit | Ya | Tidak |
+| Cetak slip dan senarai harian/mingguan | Ya | Ya |
+| Tutup Hari | Ya | Ya |
+| Reten bulanan, penutupan bulan | Ya | Lihat ringkasan sahaja |
+| Backup, verify, restore | Ya | Tidak |
+| Arkib, penutupan 4 bulan, pembersihan | Ya | Tidak |
+| Pengguna dan tetapan | Ya | Tidak |
+| Audit log penuh | Ya | Tidak |
+| Eksport | Semua | Senarai harian/mingguan sahaja (PDF/cetak) |
+
+Staff boleh menghantar "Permohonan Pembetulan Profil" (medan, nilai betul, sebab) yang muncul dalam senarai tugas Penyelia. Penyelia meluluskan atau menolak; kedua-duanya diaudit.
+
+## 12.3 Keselamatan data
+1. Setiap fungsi servis data menyemak role dan sesi; tindakan ditolak jika role tidak sesuai.
+2. Kata laluan tidak disimpan; hanya hash dan salt.
+3. Eksport mengandungi No. KP/Pasport bertopeng secara lalai. Eksport penuh hanya Penyelia, dengan sebab, dan diaudit.
+4. Jangan tulis data peribadi ke konsol atau log.
+5. Backup dan arkib disulitkan (AES-256-GCM).
+6. Aplikasi tidak memuatkan sebarang skrip atau sumber luar (Bahagian 4.1).
+7. Had keselamatan pelayar: Bahagian 4.8.
+8. Pelaksanaan sebenar tertakluk kepada kelulusan pengurusan hospital dan polisi keselamatan ICT/pengurusan rekod KKM.
+
+---
+
+# 13. EDIT DAN PEMBATALAN PENDAFTARAN
+
+## 13.1 Edit (Staff: hari sama sahaja, sebelum Tutup Hari)
+- Boleh diedit: kategori, catatan, dan medan input transaksi yang salah.
+- "Salah pesakit" TIDAK diedit. Batalkan rekod dan daftar semula pada pesakit yang betul (nombor lama kekal terpakai).
+- Wajib masukkan sebab. Simpan nilai asal dan baharu dalam audit.
+- Hari terdahulu, hari yang telah ditutup, atau bulan yang telah DITUTUP: Penyelia sahaja, dengan sebab. Edit selepas bulan DITUTUP menandakan ringkasan bulan itu "perlu dijana semula" dan menghasilkan versi ringkasan baharu apabila disahkan.
+- Selepas bulan DIARKIB, rekod bulan itu tidak boleh diedit. Pembetulan dibuat sebagai rekod pembetulan berasingan (arkib asal tidak diubah).
+
+## 13.2 Batal
+Butang BATAL PENDAFTARAN → cari rekod → sebab wajib → dialog pengesahan → status BATAL (soft delete). Rekod asal kekal. Nombor HDalat tidak digunakan semula. Pulihkan tarikh_kehadiran_terakhir seperti Bahagian 7. Tiada hard delete oleh Staff.
+
+---
+
+# 14. DASHBOARD
+
+Paparan ringkas dan tidak padat.
+
+Semua pengguna: jumlah pesakit dalam Master Patient Database; pendaftaran hari ini; mengikut empat kategori; pesakit baharu dan sedia ada; pendaftaran dibatalkan; ringkasan hari/minggu/bulan semasa; status database.
+
+Penyelia sahaja: status peringatan salin data Jumaat; status backup terakhir (harian dan mingguan, disahkan atau belum); bilangan rekod belum diarkibkan; status bulan (TERBUKA/DITUTUP/DIARKIB); bulan layak dibersihkan; bilangan pesakit TIDAK AKTIF; amaran (jam PC, hanya satu akaun Penyelia, ruang cakera, backup tertunggak, permohonan pembetulan menunggu).
+
+Carta ringkas (bar/garisan) [PATUT]; perbandingan empat kategori.
+
+---
+
+# 15. REKOD HARIAN DAN MINGGUAN
+
+Halaman Rekod Pendaftaran: carian dan penapis mengikut tarikh, minggu (ISO), bulan, nama, RN, No. HDalat, kategori dan status.
+
+Jadual: Bil | No. HDalat | RN | Nama | Kategori | Tarikh | Masa | Status. Susunan, carian, penomboran halaman, cetakan.
+
+Ringkasan mingguan: jumlah pendaftaran, bilangan bagi setiap empat kategori, dibatalkan, pesakit unik. Pendaftaran BATAL diasingkan daripada kehadiran sah.
+
+Tutup Hari: menjana senarai pendaftaran harian untuk dicetak dan ditandatangani; menetapkan rekod hari itu kepada hanya boleh diedit Penyelia.
+
+---
+
+# 16. BACKUP
+
+Pelan: PC kaunter menyimpan data operasi dalam pelayar; PC Penyelia menyimpan backup yang disahkan dan arkib. Satu salinan sahaja tidak mencukupi, dan data pelayar boleh hilang (Bahagian 4.2).
+
+## 16.1 Folder backup
+Penyelia memilih folder backup utama (File System Access API) dan, [PATUT], folder salinan kedua (pemacu luaran). Pegangan folder disimpan dalam IndexedDB. Pelayar meminta kebenaran semula: paparkan SATU butang besar "BENARKAN AKSES FOLDER BACKUP" pada log masuk pertama setiap hari. Jika API tidak tersedia, backup dimuat turun sebagai fail dan dipindahkan secara manual.
+
+## 16.2 Backup harian [WAJIB]
+- Pada log masuk pertama setiap hari dan pada Tutup Hari: jika kebenaran folder ada, jalankan backup automatik ke `harian/`. Jika tidak, paparkan sepanduk "Backup hari ini belum dibuat" dengan butang 1-klik. Aplikasi tidak boleh membuat backup apabila pelayar ditutup (had pelayar); nyatakan ini kepada pengguna.
+- Kandungan: SEMUA store (patients, attendances, sequences, ringkasan, status bulan, pengguna, tetapan, audit, backup_history dan lain-lain) → JSON → gzip → AES-256-GCM.
+- Simpan 14 backup harian terkini. Putaran hanya memadam fail harian yang dijana aplikasi (corak nama `JPL_HARIAN_*`), tidak pernah fail mingguan, PRA_* atau fail lain.
+- Frasa laluan backup diminta sekali setiap sesi (disimpan dalam memori sahaja).
+- Jika ruang atau kuota tidak mencukupi, paparkan amaran tanpa menyekat pendaftaran.
+
+## 16.3 Eksport backup mingguan ke PC Penyelia
+1. Penyelia log masuk → BACKUP MINGGUAN → sistem memaparkan minggu ISO.
+2. Snapshot konsisten semua store dalam satu transaksi baca.
+3. Sulitkan (AES-256-GCM, kunci daripada frasa laluan backup melalui PBKDF2). Jana checksum SHA-256.
+4. Fail: `JPL_BACKUP_YYYY-MM-DD_YYYY-Wxx_NN.jplbak` (NN = nombor urutan jika lebih satu pada hari sama; format: pengepala dengan versi, salt dan iv, diikuti ciphertext) dan manifest `.manifest.json` (tarikh, tempoh, jumlah pesakit, kehadiran, pembatalan, checksum, app_version, schema_version, profil, hash audit terakhir).
+5. Salin ke PC Penyelia melalui USB atau rangkaian setempat mengikut kaedah yang dibenarkan oleh ICT hospital [SAHKAN]. Aplikasi tidak bergantung pada kaedah tertentu.
+6. VERIFY dijalankan DI PC PENYELIA terhadap salinan yang tiba (bukan hanya di kaunter).
+
+Tanggungjawab frasa laluan: frasa laluan dicatat dan disimpan dalam sampul tertutup oleh sekurang-kurangnya dua pegawai. Beritahu pengguna dengan jelas bahawa kehilangan frasa laluan bermakna backup tidak boleh dibuka.
+
+## 16.4 VERIFY BACKUP
+Semak: fail wujud; checksum sepadan manifest; dekripsi berjaya; JSON sah; schema_version serasi; bilangan rekod sepadan manifest; semakan rujukan (setiap kehadiran mempunyai pesakit; tiada nombor HDalat atau RN bertindih; hash audit sah).
+
+Status: BELUM DISAHKAN, DISAHKAN DI KAUNTER, DISAHKAN DI PC PENYELIA, GAGAL. Data dekripsi sementara hanya dalam memori dan dibuang selepas semakan.
+
+## 16.5 Polisi
+1. Backup mingguan dilakukan setiap minggu. Backup tidak ditindih; nama fail unik.
+2. Jika backup mingguan DISAHKAN DI PC PENYELIA lebih 7 hari lepas: amaran kuning kepada Penyelia. Lebih 10 hari: amaran merah dan pembersihan disekat. Pendaftaran harian TIDAK disekat.
+3. Sejarah backup disimpan. Sediakan ujian pemulihan berkala (restore ke profil ujian) dan peringatan setiap suku tahun.
+4. Jika PC Penyelia tidak dapat dicapai, pendaftaran diteruskan; pembersihan disekat.
+
+## 16.6 Peringatan salin data setiap Jumaat pukul 4.00 petang [WAJIB]
+1. Setiap hari Jumaat pada 16:00 (Asia/Kuching, berdasarkan jam yang telah disahkan dalam Bahagian 9.3), sistem memaparkan SATU notifikasi peringatan kepada Penyelia: "PERINGATAN: Sila salin data minggu ini ke PC Penyelia."
+2. Bentuk: sepanduk besar yang jelas di atas halaman dan dashboard, serta notifikasi Windows melalui Notification API (kebenaran diminta melalui satu klik pengguna pada log masuk pertama). Ia TIDAK menyekat pendaftaran, tidak berkelip, dan bunyi hanya sekali dan lembut. Semakan masa dibuat setiap 30 saat semasa aplikasi terbuka.
+3. Penyelia melihat tiga butang besar: [BUAT BACKUP MINGGUAN SEKARANG] (terus ke Bahagian 16.3), [INGATKAN 30 MINIT LAGI], [TANDAKAN SUDAH DISALIN]. Jika pengguna yang sedang log masuk ialah Staff, paparkan versi ringkas tanpa butang tindakan: "Peringatan kepada Penyelia: salin data minggu ini."
+4. Jika ditunda, peringatan muncul semula selepas 30 minit sehingga selesai.
+5. Aplikasi web tidak boleh memberi notifikasi apabila pelayar atau aplikasi ditutup (had pelayar). Jika aplikasi tidak dibuka pada 16:00, peringatan dipaparkan sebagai TERTUNGGAK pada pelancaran atau log masuk Penyelia seterusnya (termasuk hari Isnin) sehingga selesai.
+6. Peringatan SELESAI apabila eksport backup mingguan bagi minggu ISO itu telah dijana, atau Penyelia menandakan selesai (sebab wajib jika tiada eksport, cth cuti umum). Pengesahan di PC Penyelia (Bahagian 16.4) dan amaran Bahagian 16.5 terus terpakai secara berasingan.
+7. Hari dan masa boleh diubah oleh Penyelia dalam Tetapan (lalai: Jumaat 16:00, tunda 30 minit).
+8. Audit: PERINGATAN_BACKUP_DIPAPARKAN, PERINGATAN_DITUNDA, PERINGATAN_SELESAI.
+9. [BOLEH] Pada PC Penyelia (MOD PENYELIA-ARKIB): peringatan "Semak fail backup minggu ini telah diterima dan disahkan".
+
+---
+
+# 17. RETEN BULANAN, RINGKASAN DAN PENUTUPAN BULAN
+
+## 17.1 Kandungan laporan (MONTHLY RETEN REPORT)
+1. Jumlah kehadiran sah.
+2. Jumlah bagi setiap empat kategori: F/Up Rutin, Walk-In, Medical Check Up, Procedure Room.
+3. Pesakit baharu dan pesakit sedia ada.
+4. Pendaftaran dibatalkan (asing, bukan kehadiran sah).
+5. Pesakit unik.
+6. Perbandingan dengan bulan sebelumnya (dibaca daripada monthly_summaries).
+7. Pecahan WARGANEGARA / BUKAN WARGANEGARA [PATUT] (menggunakan kewarganegaraan yang disimpan pada setiap kehadiran).
+8. Pecahan jantina dan kumpulan umur [BOLEH, boleh dikonfigurasi].
+Pilihan bulan dan tahun; jadual dan carta; eksport Excel (SheetJS) dan PDF melalui Cetak ke PDF pelayar; cetakan A4.
+
+## 17.2 Takrifan indikator
+Sistem tidak membuat andaian formula rasmi KKM. Setiap indikator disimpan dalam `reten_definitions`. Penyelia mesti menyemak dan mengesahkan setiap definisi sebelum laporan dianggap rasmi. Sehingga semua definisi disahkan, setiap laporan dicetak dengan teks "DRAF – DEFINISI BELUM DISAHKAN". Pengguna boleh melampirkan format reten rasmi kemudian [SAHKAN].
+
+## 17.3 Penutupan Bulan (PENYELIA)
+1. Pilih bulan selepas bulan itu berakhir. Semak tiada hari terbuka tanpa Tutup Hari, dan tiada transaksi tergantung.
+2. Jana ringkasan: simpan sebagai baris baharu monthly_summaries (versi 1, status RASMI selepas definisi disahkan, jika tidak DRAF). Baris tidak diubah selepas ini.
+3. Jana dan cetak laporan bulanan (Bahagian 19). Penyelia mengesahkan hardcopy telah dicetak dan ditandatangani (direkod: siapa dan bila).
+4. Tetapkan month_status = DITUTUP dan hitung tarikh_layak_bersih (Bahagian 6).
+5. Buat backup selepas penutupan dan hantar ke PC Penyelia (Bahagian 16).
+Ringkasan bulanan KEKAL walaupun kehadiran bulan itu dibersihkan kemudian. Dashboard, perbandingan dan laporan lama membaca daripada ringkasan, bukan daripada kehadiran yang telah dibersihkan.
+
+---
+
+# 18. ARKIB DIGITAL (MOD PENYELIA-ARKIB, PC PENYELIA)
+
+## 18.1 Struktur
+Folder arkib dipilih Penyelia melalui File System Access API:
+```
+JPL_ARCHIVE\
+  2026\
+    11-NOVEMBER\
+      weekly\      (backup mingguan disahkan)
+      JPL_ARCHIVE_2026-11.jplarc   (arkib bulanan bersulit)
+      laporan\     (PDF, Excel, reten, pembatalan, penutupan bulan)
+      manifest, checksum, resit arkib
+```
+Store `archive_index` dalam IndexedDB PC Penyelia menyimpan indeks carian merentas bulan (attendance_id, tahun_bulan, no_daftar, RN, nama_normalized, kategori, tarikh, status, fail arkib). Indeks boleh dibina semula dengan mengimport fail .jplarc.
+
+## 18.2 Membina arkib bulanan
+1. Prasyarat: bulan berstatus DITUTUP dan terdapat backup pasca-penutupan yang DISAHKAN DI PC PENYELIA.
+2. Ekstrak kehadiran bulan itu bersama petikan identiti pesakit yang terlibat (RN, nama, jantina, tarikh lahir, kewarganegaraan, No. dokumen/pasport bertopeng) supaya carian arkib boleh berdiri sendiri.
+3. Reconciliation: bilangan rekod arkib mesti sama dengan ringkasan bulanan (monthly_summaries) dan setiap attendance_id mesti unik. Import berulang tidak menduakan rekod (kunci attendance_id).
+4. Sulitkan arkib (AES-256-GCM), hitung checksum SHA-256, tulis manifest. Aplikasi TIDAK pernah menulis ganti fail arkib yang sudah wujud.
+5. Salinan KEDUA mandatori di lokasi berasingan (pemacu luaran atau pelayan hospital yang dibenarkan). Sistem menulis salinan, membaca semula dan mengesahkan checksum. Pembersihan disekat sehingga ini disahkan.
+6. Pembetulan selepas arkib dibuat sebagai rekod pembetulan atau versi arkib baharu (`versi_arkib`); arkib asal tidak diubah.
+7. Jana RESIT ARKIB (fail JSON): tahun_bulan, jumlah_rekod, checksum, archive_id, tarikh, ditandatangani HMAC-SHA256 menggunakan kunci terbitan frasa laluan backup.
+
+## 18.3 Resit arkib → kaunter
+Penyelia membawa fail resit ke PC kaunter dan mengimportnya dalam modul Penutupan 4 Bulan. Kaunter mengesahkan HMAC, bilangan rekod dan bulan, dan hanya selepas itu menganggap arkib "DISAHKAN" untuk pembersihan. Ini kerana PC kaunter tidak boleh mengetahui keadaan arkib tanpa bukti daripada PC Penyelia.
+
+## 18.4 Archive Viewer (read-only)
+Carian: tahun, bulan, tarikh, RN, nama, No. HDalat, kategori, status. Paparan sahaja; tiada edit. Rekod arkib tidak dimasukkan semula ke database operasi kecuali melalui prosedur restore yang diluluskan (Bahagian 21).
+
+---
+
+# 19. CETAKAN HARDCOPY BULANAN
+
+Senarai: pendaftaran bulanan; pendaftaran mingguan; senarai mengikut kategori (F/Up Rutin, Walk-In, Medical Check Up, Procedure Room); ringkasan statistik; laporan reten; laporan pembatalan; laporan backup; laporan penutupan bulan; laporan harian.
+
+Format: A4 Portrait/Landscape, PDF, Excel, dengan Print Preview. Setiap laporan memaparkan: Hospital Dalat, tajuk, tempoh, tarikh dan masa cetakan, jumlah rekod, nombor halaman, ruang tandatangan Penyedia dan Penyemak, dan teks DRAF jika definisi belum disahkan.
+
+---
+
+# 20. PEMBERSIHAN TERKAWAL SELEPAS GENAP 4 BULAN
+
+Nama modul: FOUR-MONTH CONTROLLED PURGE. Ini modul paling kritikal.
+
+## 20.1 Prinsip
+- Hanya bulan penuh yang berstatus DIARKIB dan melepasi tarikh_layak_bersih (hari terakhir bulan + 4 bulan kalendar). Bukan 120 hari tetap, bukan per rekod.
+- Sistem TIDAK pernah membersihkan secara automatik. Ia hanya memaklumkan "Bulan X layak dibersihkan".
+- Yang dibersihkan: baris `attendances` (SAH dan BATAL) bagi bulan yang diluluskan sahaja.
+
+## 20.2 Prasyarat (disemak oleh sistem; semua mesti BENAR)
+1. month_status = DIARKIB dan hari ini melepasi tarikh_layak_bersih.
+2. Hardcopy bulan itu disahkan.
+3. Backup pasca-penutupan DISAHKAN DI PC PENYELIA.
+4. Resit arkib sah (HMAC), bilangan rekod resit = bilangan rekod operasi = ringkasan bulanan, checksum sepadan.
+5. Salinan kedua arkib disahkan.
+6. Tiada transaksi tergantung. Tiada pengguna lain dilog masuk.
+7. SEMAK INTEGRITI DATA (Bahagian 23) lulus. Bilangan pesakit direkod sebagai garis dasar.
+8. Backup mingguan terkini tidak lebih 10 hari.
+Jika mana-mana gagal: sekat dan paparkan sebab dalam Bahasa Melayu.
+
+## 20.3 Aliran
+1. Sistem memaparkan senarai bulan layak dan bilangan rekod.
+2. Penyelia memilih bulan dan menyemak.
+3. Sistem memaparkan senarai terperinci yang akan dibersihkan.
+4. Penyelia meluluskan dan memasukkan kata laluan semula.
+5. Sistem membuat backup PRA_RESET dan mengesahkannya.
+6. Dalam SATU transaksi IndexedDB readwrite pada store attendances: padam HANYA rekod dengan tahun_bulan dalam senarai yang diluluskan dan arkib_status = DIARKIB. Sebelum transaksi selesai semak: bilangan pesakit sama dengan garis dasar dan bilangan rekod dipadam sama dengan jangkaan. Jika tidak, `transaction.abort()` (rollback). Tiada fungsi `clear()` pada store.
+7. Selepas transaksi complete: jalankan SEMAK INTEGRITI DATA (Bahagian 23). Sahkan monthly_sequences, rn_sequences, monthly_summaries, month_status, archive_history, audit_logs dan Master Patient Database masih utuh.
+8. Tetapkan month_status = DIBERSIHKAN. Rekod dalam purge_batches. Jana laporan penutupan pembersihan. Audit RESET.
+
+## 20.4 TIDAK BOLEH DIPADAM
+Master Patient Database (termasuk tarikh_kehadiran_terakhir dan first_visit_date), patient_id, No. RN, profil pesakit, akaun pengguna, tetapan sistem, monthly_sequences, rn_sequences, monthly_summaries, month_status, sejarah backup, sejarah arkib, resit arkib, purge_batches, audit log.
+
+---
+
+# 21. RESTORE DAN PEMULIHAN BENCANA
+
+## 21.1 Restore (PENYELIA)
+1. Pilih fail backup. Sistem mengesahkannya (Bahagian 16.3) dan menyemak profil serta schema_version. Backup profil UJIAN tidak boleh dipulihkan ke profil sebenar.
+2. Restore ke lokasi sementara dan semak. Buat backup PRA_RESTORE database semasa.
+3. Paparkan perbezaan: tarikh kehadiran terakhir dan nombor HDalat terakhir dalam backup berbanding fail PRA_RESTORE.
+4. Penyelia mengesahkan dengan kata laluan. Gantikan kandungan semua store dalam satu transaksi.
+
+## 21.2 Pemulihan nombor selepas restore
+Restore ke backup lama boleh menyebabkan nombor yang telah dicetak pada slip digunakan semula. Selepas restore:
+1. Penyelia memasukkan nombor HDalat tertinggi yang dikeluarkan bagi setiap bulan terjejas (daripada senarai harian bercetak).
+2. Sistem menetapkan monthly_sequences melebihi nilai itu dan menandakan nombor yang hilang sebagai "TIDAK DIPULIHKAN" (tidak digunakan semula).
+3. Pendaftaran yang hilang dimasukkan semula sebagai Kemasukan Lewat (Bahagian 10.6) dengan no_rujukan_manual atau rujukan slip asal.
+Backup harian mengecilkan jurang kepada maksimum satu hari.
+
+## 21.3 PC kaunter rosak, atau data pelayar hilang
+Pasang aplikasi (PWA) pada PC baharu pada ALAMAT YANG SAMA (MOD KAUNTER), pulihkan backup terkini yang boleh dibuka (harian, kemudian mingguan), jalankan Bahagian 21.2. Semasa gangguan, kaunter menggunakan borang daftar manual bernombor dan memasukkannya kemudian. Dokumenkan prosedur ini dalam ADMIN_GUIDE.md dan sediakan templat borang manual.
+
+---
+
+# 22. AUDIT LOG
+
+Medan: audit_id, user_id, username, role, tindakan, modul, record_id, nilai_lama, nilai_baharu (bertopeng bagi medan pengenalan), sebab, timestamp, prev_hash, row_hash.
+
+Tindakan: LOGIN, LOGOUT, LOGIN_GAGAL, REGISTER, EDIT, CANCEL, IMPORT, EXPORT, BACKUP, VERIFY_BACKUP, RESTORE, ARCHIVE, TUTUP_HARI, TUTUP_BULAN, PURGE, EDIT_MASTER_PATIENT, MERGE_PATIENT, STATUS_AUTO, PERMOHONAN_PEMBETULAN, KUNCI_JAM, UBAH_TETAPAN, URUS_PENGGUNA, PERINGATAN_BACKUP_DIPAPARKAN, PERINGATAN_DITUNDA, PERINGATAN_SELESAI.
+
+Ketidakubahan:
+- Lapisan servis hanya menyediakan fungsi TAMBAH (append). Tiada fungsi ubah atau padam audit dalam aplikasi.
+- Rantaian hash: row_hash = SHA-256(kandungan baris + prev_hash). Fungsi "Semak Integriti Audit" (Penyelia) mengesan pengubahan di tengah rantai.
+- Hash audit terakhir direkod dalam manifest setiap backup, supaya pemadaman hujung rantai dapat dikesan dengan membandingkan backup.
+- Pembetulan dibuat sebagai rekod pembetulan baharu; rekod asal kekal.
+- Audit log tidak dipadam oleh pembersihan. Eksport tahunan ke arkib sebagai salinan tambahan.
+
+---
+
+# 23. AUTO-SAVE, SEMAK INTEGRITI DATA DAN PENGENDALIAN RALAT
+
+1. Semua pendaftaran disimpan melalui transaksi IndexedDB. BERJAYA hanya dipaparkan selepas transaksi complete.
+2. Rekod yang telah complete tidak hilang jika tab ditutup atau kuasa terputus. Transaksi yang tidak lengkap dibatalkan sepenuhnya oleh pelayar.
+3. SEMAK INTEGRITI DATA (ringkas semasa permulaan; penuh atas permintaan Penyelia): setiap kehadiran mempunyai pesakit; tiada No. HDalat atau RN bertindih; sequence tidak kurang daripada nombor tertinggi yang digunakan; rantaian hash audit sah; bilangan rekod setiap store. Paparkan hasil ringkas dan lapor ralat kepada Penyelia.
+4. Semasa permulaan paparkan status: data, backup terakhir, kuota storan, status storage.persist.
+5. Mesej Bahasa Melayu yang jelas bagi: RN kosong atau bertindih; No. KP atau No. Pasport bertindih; tarikh tidak sah; pesakit tidak dijumpai; pendaftaran berganda; jam PC tidak tepat; backup gagal atau fail rosak; frasa laluan salah; import tidak lengkap; cetakan gagal; storan hampir penuh; folder backup tidak boleh diakses; aplikasi dibuka di tetingkap lain; kegagalan arkib; kegagalan pembersihan.
+6. Butiran teknikal tidak dipaparkan kepada petugas dan tidak mengandungi data peribadi.
+
+---
+
+# 24. REKA BENTUK UI/UX – MESRA STAF VETERAN
+
+## 24.1 Prinsip
+Pengguna termasuk staf veteran yang kurang selesa dengan komputer. Kejelasan lebih penting daripada hiasan. Satu skrin, satu tugas. Skrin tidak boleh padat.
+
+## 24.2 Tulisan (besar dan tebal)
+- Saiz asas minimum 18 px. Tetapan lalai "BESAR" = 20 px. Jadual 18–20 px, tajuk 26–32 px, butang 20–22 px.
+- Pilihan Saiz Teks bagi setiap pengguna: Biasa (18 px), Besar (20 px, lalai), Sangat Besar (24 px). Tukar melalui butang A− / A+ pada bar atas dan disimpan pada akaun.
+- Fon sans-serif yang jelas. Guna fon sistem sahaja (Segoe UI, Arial); JANGAN muat turun fon dari internet.
+- BOLD: semua label medan, data penting (nama pesakit, No. RN, No. HDalat, kategori, status), tajuk jadual dan label butang dipaparkan tebal. Teks bantuan berat normal tetapi tidak kurang 16 px.
+- Elakkan huruf condong, teks kelabu muda, huruf kecil yang rapat, dan singkatan yang tidak biasa.
+
+## 24.3 Warna lembut dan tidak mengganggu
+- Latar: biru-kelabu atau krim sangat muda (cth #F4F7FA), bukan putih terang yang menyilaukan.
+- Teks utama: gelap (cth #1F2A37) dengan nisbah kontras sekurang-kurangnya 7:1; semua teks sekurang-kurangnya 4.5:1.
+- Butang utama dan sidebar: biru-kelabu lembut (cth #2F5D8A) dengan teks putih tebal.
+- Status: hijau sage lembut = berjaya; kuning amber lembut = amaran; merah tanah lembut = pembatalan/ralat. Nilai hex hanyalah panduan; pilih nilai yang memenuhi kontras.
+- Elakkan warna neon atau terlalu tepu dan hitam pekat sepenuhnya. Tiada mod gelap.
+- Warna TIDAK boleh menjadi satu-satunya petunjuk. Sentiasa sertakan ikon dan teks.
+- Empat butang kategori: warna lembut berbeza, ikon besar, label besar dan tebal.
+- Tiada animasi berkelip, tiada elemen yang bergerak atau melompat, transisi minimum.
+
+## 24.4 Susun atur dan interaksi
+- Sasaran klik sekurang-kurangnya 48 px tinggi (butang utama 56 px) dengan jarak yang selesa.
+- Borang satu lajur. Label di atas medan (bukan placeholder sahaja).
+- Fokus papan kekunci kelihatan jelas (bingkai tebal). Tab mengikut susunan logik, Enter meneruskan langkah, Esc kembali. Pintasan papan kekunci dipaparkan pada butang (cth F2).
+- Medan carian auto-fokus. Keputusan carian dalam senarai besar dengan baris terpilih yang jelas.
+- Bahasa Melayu harian, bukan istilah teknikal.
+- Dialog pengesahan mempunyai dua butang besar berlabel kata kerja yang jelas, cth "YA, BATALKAN PENDAFTARAN" dan "TIDAK, KEMBALI". Pilihan yang selamat ialah lalai. Tiada dialog bertingkat.
+- Mesej berjaya besar berwarna sage dengan ikon. Mesej ralat di sebelah medan dalam ayat penuh, cth "No. Pasport mesti diisi untuk pesakit bukan warganegara".
+- Tugasan yang lama memaparkan bar kemajuan bersama teks.
+- Butang "Bantuan" pada setiap halaman dengan panduan 3–5 baris.
+- Tiada keperluan klik kanan, hover atau seret-lepas. Ikon sentiasa disertai teks.
+
+## 24.5 Resolusi
+1366 × 768 dan lebih tinggi. Semua halaman mesti berfungsi pada Saiz Teks "Sangat Besar" pada 1366 × 768 tanpa tatal mendatar dan tanpa teks terpotong (kurangkan lajur jadual, jangan kecilkan fon). Sokong zoom Ctrl +/−.
+
+## 24.6 Sidebar (ikon + teks tebal)
+Dashboard · Pendaftaran Pesakit · Rekod Pendaftaran · Laporan · Backup & Arkib (Penyelia) · Penutupan Bulan dan 4 Bulan (Penyelia) · Pengurusan Pesakit (Penyelia) · Permohonan Pembetulan · Pengurusan Pengguna (Penyelia) · Tetapan (Penyelia) · Logout.
+Menu Penyelia tidak boleh diakses oleh Staff, dan disekat juga dalam lapisan servis data.
+
+## 24.7 Cetakan
+No. HDalat dan nama pesakit pada slip dicetak besar dan tebal. Laporan menggunakan saiz fon yang mudah dibaca.
+
+---
+
+# 25. EKSPORT DAN PENAMAAN FAIL
+
+Format: PDF, XLSX. CSV [BOLEH]. Eksport mengikut role (Bahagian 12.2) dan No. KP bertopeng secara lalai.
+
+Nama fail:
+- JPL_DAILY_REPORT_YYYY-MM-DD.pdf
+- JPL_WEEKLY_REPORT_YYYY-Wxx.pdf
+- JPL_MONTHLY_REPORT_YYYY-MM.pdf
+- JPL_RETEN_YYYY-MM.pdf
+- JPL_BACKUP_YYYY-MM-DD_YYYY-Wxx_NN.jplbak
+- JPL_ARCHIVE_YYYY-MM.jplarc
+
+---
+
+# 26. UJIAN PENERIMAAN (WAJIB)
+
+Jalankan dalam profil UJIAN. Laporkan setiap ujian dengan label DIUJI / DISEMAK / BELUM DIUJI. Jangan nyatakan lulus jika tidak dijalankan.
+
+A. Pendaftaran
+1. Daftar pesakit baharu; daftar pesakit sedia ada.
+2. Cari mengikut RN, KP, pasport, nama (dan nama separa).
+3. Daftar setiap empat kategori; Walk-In dan Medical Check Up dikira berasingan dalam laporan.
+4. Pendaftaran kategori sama hari sama disekat tanpa kelulusan Penyelia; kategori berbeza hari sama dibenarkan.
+5. Cetak slip A4 dan thermal; cetak semula; printer offline tidak menghilangkan transaksi.
+6. Bayi tanpa dokumen didaftar tanpa No. KP waris.
+7. Pesakit bukan warganegara tanpa No. Pasport atau tarikh lahir tidak boleh disimpan; pesakit warganegara tidak diminta No. Pasport; No. Pasport bertindih disekat.
+
+B. Penomboran
+1. HDalat bermula 0001 dan meningkat.
+2. Nombor tidak digunakan semula selepas pembatalan.
+3. Bulan baharu bermula 0001; 100 pendaftaran serentak (simulasi) tiada nombor bertindih.
+4. RN baharu tahun 2027 bermula 0001 dan RN tahun lalu tidak berubah.
+5. RN pesakit lama (termasuk yang berformat luar biasa) kekal tepat.
+6. Jam PC ditarik mundur menyekat pendaftaran.
+
+C. Status pesakit
+1. Pesakit tanpa kehadiran 6 bulan menjadi TIDAK AKTIF.
+2. Pendaftaran semula mengaktifkan pesakit.
+3. Pembatalan kehadiran terakhir memulihkan tarikh kehadiran terakhir.
+4. Pesakit diimport tidak menjadi TIDAK AKTIF serta-merta.
+5. Tarikh kehadiran terakhir kekal selepas pembersihan.
+
+D. Akses dan keselamatan
+1. Staff boleh daftar, edit hari sama, batal, edit medan terhad profil.
+2. Staff tidak boleh edit nama/dokumen/RN, import, backup, restore, arkib, reset, urus pengguna.
+3. Panggilan fungsi servis data Penyelia daripada sesi Staff ditolak.
+4. Penguncian selepas 5 kata laluan salah; auto-lock; pemulihan akaun Penyelia melalui Penyelia kedua dan kunci pemulihan.
+5. Aplikasi tiada fungsi ubah/padam audit; semakan rantaian hash mengesan pengubahan data audit yang dibuat di luar aplikasi.
+
+E. Backup dan restore
+1. Backup harian (automatik jika kebenaran folder ada, atau 1-klik) dan putaran 14 salinan.
+2. Backup mingguan bersulit; checksum sepadan; dekripsi dengan frasa laluan salah gagal.
+3. Fail rosak dikesan oleh VERIFY. Status DISAHKAN DI PC PENYELIA direkod.
+4. Restore berjaya dalam profil ujian dan prosedur pemulihan nombor berfungsi.
+5. Import berulang tidak menduakan rekod arkib.
+6. Peringatan Jumaat 16:00 dipaparkan kepada Penyelia (sepanduk dan notifikasi); tunda 30 minit berfungsi; peringatan tertunggak dipaparkan jika aplikasi dibuka selepas itu; ia tidak menyekat pendaftaran; ia hilang selepas backup mingguan dijana atau ditandakan selesai.
+
+F. Penutupan bulan, arkib dan pembersihan
+1. Ringkasan bulanan tidak berubah dan kekal selepas pembersihan.
+2. Pembersihan disekat jika: bulan belum genap 4 bulan; hardcopy belum disahkan; backup belum disahkan; arkib belum dibina; resit tidak sah atau checksum/bilangan tidak sepadan; salinan kedua belum disahkan; backup lebih 10 hari.
+3. Pembersihan hanya memadam kehadiran bulan terpilih. Bulan lain, Master Patient Database, RN, sequences, ringkasan dan audit kekal.
+4. Rollback automatik jika bilangan pesakit berubah.
+5. Archive Viewer boleh mencari rekod yang telah dibersihkan.
+
+G. Ketahanan dan prestasi
+1. Tutup paksa tab semasa pendaftaran dan buka semula: rekod yang complete utuh, tiada rekod separuh; SEMAK INTEGRITI DATA bersih.
+2. Carian kurang 1 saat pada 50,000 pesakit (profil ujian); permulaan kurang 10 saat.
+3. Aplikasi berfungsi tanpa internet selepas pemasangan PWA (matikan rangkaian dan muat semula).
+4. Tab kedua disekat apabila aplikasi sudah dibuka.
+5. Amaran jika kuota storan hampir penuh atau `storage.persist()` ditolak.
+
+H. Kebolehgunaan (staf veteran)
+1. Sekurang-kurangnya seorang staf veteran sebenar menyelesaikan tanpa bantuan: daftar pesakit sedia ada, daftar pesakit baharu (warganegara dan bukan warganegara), batal pendaftaran, cetak semula slip.
+2. Rekod masa dan bilangan kesilapan; senaraikan kesukaran yang dikesan dan baiki.
+3. Semua halaman diuji pada Saiz Teks Sangat Besar pada 1366 × 768: tiada tatal mendatar, tiada teks terpotong.
+4. Kontras teks utama sekurang-kurangnya 7:1 (guna alat semak kontras).
+5. Semua fungsi harian boleh digunakan dengan papan kekunci sahaja.
+
+---
+
+# 27. STRUKTUR PROJEK DAN DOKUMENTASI
+
+```
+src/
+  app/          (routing, susun atur, tema, sesi)
+  data/         (db.ts, schema.ts, migrations.ts, services: patients, attendances, numbering, status, months, backups, archive, purge, users, audit, settings)
+  crypto/       (kdf, aes, hash, hmac)
+  features/     (pendaftaran, pesakit, rekod, laporan, backup, arkib, penutupan, pengguna, tetapan, peringatan)
+  components/   (komponen UI mesra veteran)
+  print/        (slip, laporan)
+  utils/        (clock, normalize, tarikh, umur)
+  pwa/          (service worker, manifest)
+tests/          (Vitest: penomboran, status 6 bulan, normalisasi, validasi pasport, hash audit, pembersihan ujian kering) [PATUT]
+docs/
+```
+
+Dokumentasi:
+- README.md
+- DEPLOYMENT_GUIDE.md: cara menghidang pada ALAMAT TETAP (pilihan: pelayan statik setempat pada PC kaunter; pelayan intranet hospital; hos statik HTTPS beralamat tetap, kod sahaja, tiada data pesakit meninggalkan PC), memasang PWA, dasar pelayar untuk menghalang pengosongan data tapak, `--kiosk-printing`, skrip permulaan.
+- ADMIN_GUIDE.md: frasa laluan backup, kunci pemulihan, had keselamatan pelayar (Bahagian 4.8), prosedur PC rosak, penutupan bulan dan pembersihan.
+- USER_GUIDE.md (Staff), BACKUP_RESTORE_GUIDE.md, ASSUMPTIONS.md, CHANGELOG.md, templat borang daftar manual.
+
+---
+
+# 28. URUTAN PEMBINAAN (DALAM SATU HASIL)
+
+Bina mengikut urutan ini. Jika had output hampir dicapai, berhenti di penghujung modul yang lengkap dan senaraikan baki dalam "BELUM SIAP".
+
+1. Asas: projek, IndexedDB dan migrasi, profil ujian, wizard persediaan (alamat, persist, akaun Penyelia dan kunci pemulihan, mod), autentikasi, RBAC dalam servis data, audit berantai hash, sistem UI mesra veteran (Bahagian 24), PWA.
+2. Pesakit: Master Patient Database, jadual rujukan, import XLSX/CSV, carian pantas, pesakit baharu dan RN tahunan, kewarganegaraan dan pasport, pengesanan pendua, status automatik 6 bulan, Permohonan Pembetulan, gabung rekod.
+3. Pendaftaran: empat kategori, penomboran HDalat, perlindungan jam PC, pendaftaran berganda, edit/batal, kemasukan lewat, slip dan cetakan.
+4. Operasi dan laporan: dashboard, rekod harian/mingguan, Tutup Hari, laporan, reten dan definisi, monthly_summaries, Penutupan Bulan, hardcopy.
+5. Backup: harian, mingguan bersulit, manifest, VERIFY, sejarah, amaran, peringatan Jumaat 4.00 petang (16.6), restore dan pemulihan nombor.
+6. Arkib dan pembersihan: MOD PENYELIA-ARKIB, pembinaan arkib, salinan kedua, resit arkib, Archive Viewer dan indeks, Four-Month Controlled Purge.
+7. Dokumentasi, ujian automatik asas dan senarai semak penerimaan (Bahagian 26).
+
+Susunan keutamaan jika masa terhad: semua [WAJIB] dahulu; [PATUT] kemudian; [BOLEH] hanya selepas semua [WAJIB] stabil.
+
+---
+
+# 29. NILAI LALAI DAN PERKARA YANG PERLU DISAHKAN HOSPITAL
+
+Gunakan nilai lalai ini jika tiada arahan lain dan catat dalam ASSUMPTIONS.md:
+1. Format RN baharu: HD-RN/TAHUN/NNNN, reset setiap tahun.
+2. Format reten rasmi KKM: belum diberi. Guna definisi lalai yang boleh disunting dan tanda DRAF sehingga disahkan.
+3. Kaedah pemindahan fail ke PC Penyelia: USB atau folder rangkaian (ikut kebenaran ICT) [SAHKAN].
+4. Medan kewarganegaraan WAJIB. Bukan warganegara: No. Pasport dan tarikh lahir wajib (Bahagian 5.1A).
+5. Senarai etnik dan jenis dokumen: lalai dalam Bahagian 5.2, boleh disunting.
+6. Auto-lock 5 minit; kata laluan minimum 8 aksara; 5 percubaan gagal.
+7. Model printer thermal dan A4: belum dikenal pasti; guna pemilihan printer Windows.
+8. Lokasi salinan kedua arkib: ditetapkan oleh Penyelia dalam Tetapan.
+9. Kelulusan Pengarah Hospital dan unit ICT diperlukan sebelum data pesakit sebenar digunakan.
+10. Peringatan salin data: Jumaat 16:00, tunda 30 minit, boleh diubah dalam Tetapan.
+11. Saiz teks lalai: Besar (20 px); minimum 18 px.
+12. Pelayar sasaran: Google Chrome atau Microsoft Edge terkini pada Windows.
+13. Alamat aplikasi mesti tetap sepanjang hayat penggunaan (Bahagian 4.3); kaedah penghidangan ditentukan semasa pemasangan [SAHKAN dengan ICT].
+
+---
+
+# 30. HASIL AKHIR
+
+JPL REGISTRATION SYSTEM – HOSPITAL DALAT, SARAWAK, sebagai aplikasi web PWA luar talian yang mempunyai:
+- Login dan dua role dengan kawalan dalam lapisan servis data.
+- Antaramuka mesra staf veteran: tulisan besar dan tebal, warna lembut yang tidak mengganggu.
+- Master Patient Database kekal; import pesakit lama; carian pantas; status AKTIF/TIDAK AKTIF automatik (6 bulan); kewarganegaraan dan pasport.
+- Empat kategori pendaftaran: F/Up Rutin, Walk-In, Medical Check Up, Procedure Room.
+- RN baharu tahunan; nombor HDalat bulanan; perlindungan jam PC.
+- Edit dan pembatalan terkawal; slip A4/thermal; kemasukan lewat.
+- Dashboard; rekod harian/mingguan; Tutup Hari; reten bulanan dengan ringkasan kekal; penutupan bulan; hardcopy.
+- Backup harian dan mingguan bersulit dengan VERIFY; peringatan kepada Penyelia setiap Jumaat 4.00 petang untuk menyalin data; restore dan pemulihan nombor.
+- Arkib digital dengan resit dan dua salinan; Archive Viewer.
+- Pembersihan terkawal selepas genap 4 bulan.
+- Audit log berantai hash; profil ujian berasingan; dokumentasi lengkap.
+
+UTAMAKAN INTEGRITI DATA PESAKIT BERBANDING KELAJUAN PEMBANGUNAN.
+
+Sebelum sebarang tindakan pemadaman data dilaksanakan, pastikan semua prosedur backup, arkib, pengesahan sistem dan kelulusan Penyelia telah dipenuhi.
+
+**END OF MASTER PROMPT GOOGLE AI STUDIO V4.1-WEB**
